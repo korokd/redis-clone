@@ -1,18 +1,19 @@
 import gleam/io
 
-import birl
-import birl/duration
 import gleam/bit_array
 import gleam/bytes_builder
-import gleam/dict
+import gleam/dict.{type Dict}
 import gleam/erlang/process
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/order.{Gt}
-import gleam/otp/actor
+import gleam/otp/actor.{type Next}
 import gleam/string
-import glisten.{Packet, User}
+
+import birl.{type Time}
+import birl/duration
+import glisten.{type Connection, type Message, Packet, User}
 
 type Command {
   Ping
@@ -27,7 +28,7 @@ type CommandError {
 }
 
 type State =
-  dict.Dict(String, #(String, Option(birl.Time)))
+  Dict(String, #(String, Option(Time)))
 
 pub fn main() {
   let state: State = dict.new()
@@ -40,10 +41,10 @@ pub fn main() {
 }
 
 fn loop(
-  msg: glisten.Message(a),
+  msg: Message(a),
   state: State,
-  conn: glisten.Connection(a),
-) -> actor.Next(glisten.Message(a), State) {
+  conn: Connection(a),
+) -> Next(Message(a), State) {
   case msg {
     Packet(data) -> handle_message(data, state, conn)
     User(_) -> actor.continue(state)
@@ -53,8 +54,8 @@ fn loop(
 fn handle_message(
   msg: BitArray,
   state: State,
-  conn: glisten.Connection(a),
-) -> actor.Next(glisten.Message(a), State) {
+  conn: Connection(a),
+) -> Next(Message(a), State) {
   let #(command, arguments) = parse_message(msg)
 
   case parse_command(command, arguments) {
@@ -110,8 +111,8 @@ fn parse_command(
 fn handle_command(
   command: Command,
   state: State,
-  conn: glisten.Connection(a),
-) -> actor.Next(glisten.Message(a), State) {
+  conn: Connection(a),
+) -> Next(Message(a), State) {
   let _respond = case command {
     Ping -> {
       let pong = "+PONG\r\n"
