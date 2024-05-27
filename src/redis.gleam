@@ -27,14 +27,22 @@ pub fn main() {
   process.sleep_forever()
 }
 
-fn loop(msg: glisten.Message(a), state: state, conn: glisten.Connection(a)) -> actor.Next(glisten.Message(a), state) {
+fn loop(
+  msg: glisten.Message(a),
+  state: state,
+  conn: glisten.Connection(a),
+) -> actor.Next(glisten.Message(a), state) {
   case msg {
     Packet(data) -> handle_message(data, state, conn)
     User(_) -> actor.continue(state)
   }
 }
 
-fn handle_message(msg: BitArray, state: state, conn: glisten.Connection(a)) -> actor.Next(glisten.Message(a), state) {
+fn handle_message(
+  msg: BitArray,
+  state: state,
+  conn: glisten.Connection(a),
+) -> actor.Next(glisten.Message(a), state) {
   let #(command, arguments) = parse_message(msg)
 
   case parse_command(command, arguments) {
@@ -47,19 +55,24 @@ fn parse_message(msg: BitArray) -> #(String, List(String)) {
   let assert Ok(msg) = bit_array.to_string(msg)
   let parts = string.split(msg, on: "\r\n")
   let assert [_how_many, ..tail] = parts
-  let assert [command, ..arguments] = list.index_fold(over: tail, from: [], with: fn (acc, s, i) {
-    let is_odd = i % 2 != 0
-    case is_odd {
-      True -> [s, ..acc]
-      False -> acc
-    }
-  }) |> list.reverse()
+  let assert [command, ..arguments] =
+    list.index_fold(over: tail, from: [], with: fn(acc, s, i) {
+      let is_odd = i % 2 != 0
+      case is_odd {
+        True -> [s, ..acc]
+        False -> acc
+      }
+    })
+    |> list.reverse()
 
   #(command, arguments)
 }
 
-fn parse_command(command: String, arguments: List(String)) -> Result(Command, CommandError) {
-  case command, arguments {
+fn parse_command(
+  command: String,
+  arguments: List(String),
+) -> Result(Command, CommandError) {
+  case string.lowercase(command), arguments {
     "ping", _ -> Ok(Ping)
     "echo", [value] -> Ok(Echo(value))
     "echo", _ -> Error(UnexpectedArguments(command, arguments))
@@ -67,7 +80,11 @@ fn parse_command(command: String, arguments: List(String)) -> Result(Command, Co
   }
 }
 
-fn handle_command(command: Command, state: state, conn: glisten.Connection(a)) -> actor.Next(glisten.Message(a), state) {
+fn handle_command(
+  command: Command,
+  state: state,
+  conn: glisten.Connection(a),
+) -> actor.Next(glisten.Message(a), state) {
   let _respond = case command {
     Ping -> {
       let pong = "+PONG\r\n"
@@ -86,7 +103,12 @@ fn handle_command(command: Command, state: state, conn: glisten.Connection(a)) -
 fn handle_command_error(error: CommandError) {
   case error {
     UnexpectedArguments(command, arguments) -> {
-      panic as { "Unexpected arguments for command " <> command <> ": " <> string.inspect(arguments) }
+      panic as {
+        "Unexpected arguments for command "
+        <> command
+        <> ": "
+        <> string.inspect(arguments)
+      }
     }
 
     UnknownCommand(command) -> {
