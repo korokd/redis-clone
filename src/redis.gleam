@@ -1,11 +1,15 @@
 import gleam/io
 
+import birl
+import birl/duration
 import gleam/bit_array
 import gleam/bytes_builder
 import gleam/dict
 import gleam/erlang/process
+import gleam/int
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{type Option, None, Some}
+import gleam/order.{Gt}
 import gleam/otp/actor
 import gleam/string
 import glisten.{Packet, User}
@@ -13,7 +17,7 @@ import glisten.{Packet, User}
 type Command {
   Ping
   Echo(value: String)
-  Set(key: String, value: String)
+  Set(key: String, value: String, expiry: Option(Int))
   Get(key: String)
 }
 
@@ -23,7 +27,7 @@ type CommandError {
 }
 
 type State =
-  dict.Dict(String, String)
+  dict.Dict(String, #(String, Option(birl.Time)))
 
 pub fn main() {
   let state: State = dict.new()
@@ -73,9 +77,6 @@ fn parse_message(msg: BitArray) -> #(String, List(String)) {
     })
     |> list.reverse()
 
-  io.debug(command)
-  io.debug(arguments)
-
   #(command, arguments)
 }
 
@@ -86,7 +87,15 @@ fn parse_command(
   case string.lowercase(command), arguments {
     "ping", [] -> Ok(Ping)
     "echo", [value] -> Ok(Echo(value))
-    "set", [key, value] -> Ok(Set(key, value))
+    "set", [key, value] -> Ok(Set(key, value, None))
+    "set", [key, value, px, expiry] ->
+      case string.lowercase(px) {
+        "px" -> {
+          let assert Ok(expiry) = int.parse(expiry)
+          Ok(Set(key, value, Some(expiry)))
+        }
+        _ -> Error(UnexpectedArguments(command, arguments))
+      }
     "get", [key] -> Ok(Get(key))
 
     "ping", _ -> Error(UnexpectedArguments(command, arguments))
@@ -118,17 +127,30 @@ fn handle_command(
       actor.continue(state)
     }
 
-    Set(key, value) -> {
+    Set(key, value, expiry) -> {
       let ok = "+OK\r\n"
       let assert Ok(_) = glisten.send(conn, bytes_builder.from_string(ok))
+      let expiry =
+        option.map(over: expiry, with: fn(expiry) {
+          birl.add(birl.now(), duration.milli_seconds(expiry))
+        })
 
-      dict.insert(into: state, for: key, insert: value)
+      dict.insert(into: state, for: key, insert: #(value, expiry))
       |> actor.continue()
     }
 
     Get(key) -> {
-      let assert Ok(value) = dict.get(state, key)
-      let response = "+" <> value <> "\r\n"
+      let assert Ok(#(value, expiry)) = dict.get(state, key)
+
+      let response = case expiry {
+        Some(expiry) ->
+          case birl.compare(birl.now(), expiry) {
+            Gt -> "$-1\r\n"
+            _ -> "+" <> value <> "\r\n"
+          }
+        None -> "+" <> value <> "\r\n"
+      }
+
       let assert Ok(_) = glisten.send(conn, bytes_builder.from_string(response))
 
       actor.continue(state)
