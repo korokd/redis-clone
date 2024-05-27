@@ -9,6 +9,16 @@ import gleam/otp/actor
 import gleam/string
 import glisten.{Packet, User}
 
+type Command {
+  Ping
+  Echo(value: String)
+}
+
+type CommandError {
+  UnexpectedArguments(command: String, arguments: List(String))
+  UnknownCommand(command: String)
+}
+
 pub fn main() {
   let assert Ok(_) =
     glisten.handler(fn(_conn) { #(Nil, None) }, loop)
@@ -25,6 +35,15 @@ fn loop(msg: glisten.Message(a), state: state, conn: glisten.Connection(a)) -> a
 }
 
 fn handle_message(msg: BitArray, state: state, conn: glisten.Connection(a)) -> actor.Next(glisten.Message(a), state) {
+  let #(command, arguments) = parse_message(msg)
+
+  case parse_command(command, arguments) {
+    Ok(command) -> handle_command(command, state, conn)
+    Error(error) -> handle_command_error(error)
+  }
+}
+
+fn parse_message(msg: BitArray) -> #(String, List(String)) {
   let assert Ok(msg) = bit_array.to_string(msg)
   let parts = string.split(msg, on: "\r\n")
   let assert [_how_many, ..tail] = parts
@@ -36,32 +55,42 @@ fn handle_message(msg: BitArray, state: state, conn: glisten.Connection(a)) -> a
     }
   }) |> list.reverse()
 
-  case string.lowercase(command), arguments {
-    "ping", _ -> handle_ping(state, conn)
-    "echo", [value] -> handle_echo(state, conn, value)
-    "echo", _ -> unexpected_arguments(command, arguments)
-    _, _ -> unhandled(command)
+  #(command, arguments)
+}
+
+fn parse_command(command: String, arguments: List(String)) -> Result(Command, CommandError) {
+  case command, arguments {
+    "ping", _ -> Ok(Ping)
+    "echo", [value] -> Ok(Echo(value))
+    "echo", _ -> Error(UnexpectedArguments(command, arguments))
+    _, _ -> Error(UnknownCommand(command))
+  }
+}
+
+fn handle_command(command: Command, state: state, conn: glisten.Connection(a)) -> actor.Next(glisten.Message(a), state) {
+  let _respond = case command {
+    Ping -> {
+      let pong = "+PONG\r\n"
+      let assert Ok(_) = glisten.send(conn, bytes_builder.from_string(pong))
+    }
+
+    Echo(value) -> {
+      let pong = "+" <> value <> "\r\n"
+      let assert Ok(_) = glisten.send(conn, bytes_builder.from_string(pong))
+    }
   }
 
   actor.continue(state)
 }
 
-fn handle_ping(state: state, conn: glisten.Connection(a)) -> actor.Next(glisten.Message(a), state) {
-  let pong = "+PONG\r\n"
-  let assert Ok(_) = glisten.send(conn, bytes_builder.from_string(pong))
-  actor.continue(state)
-}
+fn handle_command_error(error: CommandError) {
+  case error {
+    UnexpectedArguments(command, arguments) -> {
+      panic as { "Unexpected arguments for command " <> command <> ": " <> string.inspect(arguments) }
+    }
 
-fn handle_echo(state: state, conn: glisten.Connection(a), value: String) -> actor.Next(glisten.Message(a), state) {
-  let pong = "+" <> value <> "\r\n"
-  let assert Ok(_) = glisten.send(conn, bytes_builder.from_string(pong))
-  actor.continue(state)
-}
-
-fn unexpected_arguments(command: String, arguments: List(String)) {
-  panic as { "Unexpected arguments for command " <> command <> ": " <> string.inspect(arguments) }
-}
-
-fn unhandled(command: String) {
-  panic as { "Unknown command: " <> command }
+    UnknownCommand(command) -> {
+      panic as { "Unknown command: " <> command }
+    }
+  }
 }
