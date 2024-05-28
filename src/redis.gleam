@@ -1,11 +1,9 @@
 import gleam/io
 
-import gleam/bit_array
 import gleam/bytes_builder
 import gleam/dict.{type Dict}
 import gleam/erlang/process
 import gleam/int
-import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/order.{Gt}
 import gleam/otp/actor.{type Next}
@@ -15,20 +13,22 @@ import birl.{type Time}
 import birl/duration
 import glisten.{type Connection, type Message, Packet, User}
 
+import redis/resp
+
 type Command {
   Ping
   Echo(value: String)
-  Set(key: String, value: String, expiry: Option(Int))
+  Set(key: String, value: resp.RespData, expiry: Option(Int))
   Get(key: String)
 }
 
 type CommandError {
-  UnexpectedArguments(command: String, arguments: List(String))
+  UnexpectedArguments(command: String, arguments: List(resp.RespData))
   UnknownCommand(command: String)
 }
 
 type State =
-  Dict(String, #(String, Option(Time)))
+  Dict(String, #(resp.RespData, Option(Time)))
 
 pub fn main() {
   let state: State = dict.new()
@@ -56,7 +56,13 @@ fn handle_message(
   state: State,
   conn: Connection(a),
 ) -> Next(Message(a), State) {
-  let #(command, arguments) = parse_message(msg)
+  // Here we assume that:
+  // - the whole thing is sent in a single message
+  // - there is no extra content
+  // - the message is always a RESP array
+  // - the first element of the top-level array is always a string
+  let assert Ok(resp.Parsed(data, <<>>)) = resp.parse(msg)
+  let assert resp.Array([resp.String(command), ..arguments]) = data
 
   case parse_command(command, arguments) {
     Ok(command) -> handle_command(command, state, conn)
@@ -64,32 +70,15 @@ fn handle_message(
   }
 }
 
-fn parse_message(msg: BitArray) -> #(String, List(String)) {
-  let assert Ok(msg) = bit_array.to_string(msg)
-  let parts = string.split(msg, on: "\r\n")
-  let assert [_how_many, ..tail] = parts
-  let assert [command, ..arguments] =
-    list.index_fold(over: tail, from: [], with: fn(acc, s, i) {
-      let is_odd = i % 2 != 0
-      case is_odd {
-        True -> [s, ..acc]
-        False -> acc
-      }
-    })
-    |> list.reverse()
-
-  #(command, arguments)
-}
-
 fn parse_command(
   command: String,
-  arguments: List(String),
+  arguments: List(resp.RespData),
 ) -> Result(Command, CommandError) {
   case string.lowercase(command), arguments {
     "ping", [] -> Ok(Ping)
-    "echo", [value] -> Ok(Echo(value))
-    "set", [key, value] -> Ok(Set(key, value, None))
-    "set", [key, value, px, expiry] ->
+    "echo", [resp.String(value)] -> Ok(Echo(value))
+    "set", [resp.String(key), value] -> Ok(Set(key, value, None))
+    "set", [resp.String(key), value, resp.String(px), resp.String(expiry)] ->
       case string.lowercase(px) {
         "px" -> {
           let assert Ok(expiry) = int.parse(expiry)
@@ -97,7 +86,7 @@ fn parse_command(
         }
         _ -> Error(UnexpectedArguments(command, arguments))
       }
-    "get", [key] -> Ok(Get(key))
+    "get", [resp.String(key)] -> Ok(Get(key))
 
     "ping", _ -> Error(UnexpectedArguments(command, arguments))
     "echo", _ -> Error(UnexpectedArguments(command, arguments))
@@ -146,13 +135,13 @@ fn handle_command(
       let response = case expiry {
         Some(expiry) ->
           case birl.compare(birl.now(), expiry) {
-            Gt -> "$-1\r\n"
-            _ -> "+" <> value <> "\r\n"
+            Gt -> resp.encode(resp.Null)
+            _ -> resp.encode(value)
           }
-        None -> "+" <> value <> "\r\n"
+        None -> resp.encode(value)
       }
 
-      let assert Ok(_) = glisten.send(conn, bytes_builder.from_string(response))
+      let assert Ok(_) = glisten.send(conn, bytes_builder.from_bit_array(response))
 
       actor.continue(state)
     }
