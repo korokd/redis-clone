@@ -10,7 +10,7 @@ pub type RespData {
 }
 
 pub type Parsed {
-  Parsed(resp_data: RespData, remaining_input: BitArray)
+  Parsed(data: RespData, remaining_input: BitArray)
 }
 
 pub type ParseError {
@@ -152,7 +152,7 @@ fn parse_elements(
     False -> {
       case parse(input) {
         Ok(parsed) -> {
-          let acc = [parsed.resp_data, ..acc]
+          let acc = [parsed.data, ..acc]
           parse_elements(parsed.remaining_input, acc, remaining - 1)
         }
 
