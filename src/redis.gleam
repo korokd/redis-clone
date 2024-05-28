@@ -1,19 +1,14 @@
-import gleam/io
-
 import gleam/bytes_builder
-import gleam/dict.{type Dict}
 import gleam/erlang/process
 import gleam/int
 import gleam/option.{type Option, None, Some}
-import gleam/order.{Gt}
 import gleam/otp/actor.{type Next}
 import gleam/string
 
-import birl.{type Time}
-import birl/duration
 import glisten.{type Connection, type Message, Packet, User}
 
 import redis/resp
+import redis/store.{type Store}
 
 type Command {
   Ping
@@ -28,10 +23,10 @@ type CommandError {
 }
 
 type State =
-  Dict(String, #(resp.RespData, Option(Time)))
+  Store
 
 pub fn main() {
-  let state: State = dict.new()
+  let state: State = store.new()
 
   let assert Ok(_) =
     glisten.handler(fn(_conn) { #(state, None) }, loop)
@@ -102,7 +97,7 @@ fn handle_command(
   state: State,
   conn: Connection(a),
 ) -> Next(Message(a), State) {
-  let _respond = case command {
+  case command {
     Ping -> {
       let pong = "+PONG\r\n"
       let assert Ok(_) = glisten.send(conn, bytes_builder.from_string(pong))
@@ -118,30 +113,22 @@ fn handle_command(
     }
 
     Set(key, value, expiry) -> {
+      let state = store.upsert(state, key, value, expiry)
+
       let ok = "+OK\r\n"
       let assert Ok(_) = glisten.send(conn, bytes_builder.from_string(ok))
-      let expiry =
-        option.map(over: expiry, with: fn(expiry) {
-          birl.add(birl.now(), duration.milli_seconds(expiry))
-        })
 
-      dict.insert(into: state, for: key, insert: #(value, expiry))
-      |> actor.continue()
+      actor.continue(state)
     }
 
     Get(key) -> {
-      let assert Ok(#(value, expiry)) = dict.get(state, key)
-
-      let response = case expiry {
-        Some(expiry) ->
-          case birl.compare(birl.now(), expiry) {
-            Gt -> resp.encode(resp.Null)
-            _ -> resp.encode(value)
-          }
-        None -> resp.encode(value)
+      let response = case store.get(state, key) {
+        Ok(value) -> resp.encode(value)
+        Error(_) -> resp.encode(resp.Null)
       }
 
-      let assert Ok(_) = glisten.send(conn, bytes_builder.from_bit_array(response))
+      let assert Ok(_) =
+        glisten.send(conn, bytes_builder.from_bit_array(response))
 
       actor.continue(state)
     }
