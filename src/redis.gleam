@@ -1,14 +1,19 @@
 import gleam/bytes_builder
 import gleam/erlang/process
+import gleam/int
 import gleam/option.{None}
 import gleam/otp/actor.{type Next}
+import gleam/result
 import gleam/string
 
+import argv.{Argv}
 import glisten.{type Connection, type Message}
 
 import redis/command.{type Command, type CommandError}
 import redis/resp
 import redis/store.{type Store}
+
+const default_port = 6379
 
 type State =
   Store
@@ -16,9 +21,18 @@ type State =
 pub fn main() {
   let state: State = store.new()
 
+  let Argv(_, _, arguments) = argv.load()
+  let port = case arguments {
+    ["--port", port] ->
+      int.parse(port)
+      |> result.unwrap(or: default_port)
+
+    _ -> default_port
+  }
+
   let assert Ok(_) =
     glisten.handler(fn(_conn) { #(state, None) }, loop)
-    |> glisten.serve(6379)
+    |> glisten.serve(port)
 
   process.sleep_forever()
 }
