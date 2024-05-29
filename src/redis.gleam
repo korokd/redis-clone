@@ -102,6 +102,15 @@ fn handle_command(
 
       state
     }
+
+    command.Info(command.Replication) -> {
+      let response = resp.encode(resp.String("role:master"))
+
+      let assert Ok(_) =
+        glisten.send(conn, bytes_builder.from_bit_array(response))
+
+      state
+    }
   }
 
   actor.continue(state)

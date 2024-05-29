@@ -4,11 +4,16 @@ import gleam/string
 
 import redis/resp
 
+pub type InfoSection {
+  Replication
+}
+
 pub type Command {
   Ping
   Echo(value: String)
   Set(key: String, value: resp.RespData, expiry: Option(Int))
   Get(key: String)
+  Info(InfoSection)
 }
 
 pub type CommandError {
@@ -33,9 +38,17 @@ pub fn from_resp_data(data: resp.Parsed) -> Result(Command, CommandError) {
               let assert Ok(expiry) = int.parse(expiry)
               Ok(Set(key, value, Some(expiry)))
             }
+
             _ -> Error(UnexpectedArguments(command, arguments))
           }
+
         "get", [resp.String(key)] -> Ok(Get(key))
+
+        "info", [resp.String(replication)] -> case string.lowercase(replication) {
+          "replication" -> Ok(Info(Replication))
+
+          _ -> Error(UnexpectedArguments(command, arguments))
+        }
 
         "ping", _ -> Error(UnexpectedArguments(command, arguments))
         "echo", _ -> Error(UnexpectedArguments(command, arguments))
