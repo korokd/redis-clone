@@ -1,3 +1,5 @@
+import gleam/io
+
 import gleam/int
 import gleam/option.{type Option, None, Some}
 import gleam/string
@@ -46,11 +48,12 @@ pub fn from_resp_data(data: resp.Parsed) -> Result(Command, CommandError) {
 
         "get", [resp.String(key)] -> Ok(Get(key))
 
-        "info", [resp.String(replication)] -> case string.lowercase(replication) {
-          "replication" -> Ok(Info(Replication))
+        "info", [resp.String(replication)] ->
+          case string.lowercase(replication) {
+            "replication" -> Ok(Info(Replication))
 
-          _ -> Error(UnexpectedArguments(command, arguments))
-        }
+            _ -> Error(UnexpectedArguments(command, arguments))
+          }
 
         "ping", _ -> Error(UnexpectedArguments(command, arguments))
         "echo", _ -> Error(UnexpectedArguments(command, arguments))

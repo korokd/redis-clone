@@ -1,3 +1,5 @@
+import gleam/io
+
 import gleam/bit_array
 import gleam/int
 import gleam/list

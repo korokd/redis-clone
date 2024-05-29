@@ -1,3 +1,5 @@
+import gleam/io
+
 import gleam/dict.{type Dict}
 import gleam/option.{type Option, None, Some}
 
