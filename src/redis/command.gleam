@@ -10,7 +10,7 @@ pub type InfoSection {
 
 pub type Command {
   Ping
-  Echo(value: String)
+  Echo(value: resp.RespData)
   Set(key: String, value: resp.RespData, expiry: Option(Int))
   Get(key: String)
   Info(InfoSection)
@@ -30,7 +30,9 @@ pub fn from_resp_data(data: resp.Parsed) -> Result(Command, CommandError) {
 
       case string.lowercase(command), arguments {
         "ping", [] -> Ok(Ping)
-        "echo", [resp.String(value)] -> Ok(Echo(value))
+
+        "echo", [value] -> Ok(Echo(value))
+
         "set", [resp.String(key), value] -> Ok(Set(key, value, None))
         "set", [resp.String(key), value, resp.String(px), resp.String(expiry)] ->
           case string.lowercase(px) {

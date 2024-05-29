@@ -67,28 +67,24 @@ fn handle_command(
   state: State,
   conn: Connection(a),
 ) -> Next(Message(a), State) {
-  let state = case command {
+  let #(response, state) = case command {
     command.Ping -> {
-      let pong = "+PONG\r\n"
-      let assert Ok(_) = glisten.send(conn, bytes_builder.from_string(pong))
+      let response = resp.encode(resp.String("PONG"))
 
-      state
+      #(response, state)
     }
 
     command.Echo(value) -> {
-      let response = "+" <> value <> "\r\n"
-      let assert Ok(_) = glisten.send(conn, bytes_builder.from_string(response))
+      let response = resp.encode(value)
 
-      state
+      #(response, state)
     }
 
     command.Set(key, value, expiry) -> {
+      let response = resp.encode(resp.String("OK"))
       let state = store.upsert(state, key, value, expiry)
 
-      let ok = "+OK\r\n"
-      let assert Ok(_) = glisten.send(conn, bytes_builder.from_string(ok))
-
-      state
+      #(response, state)
     }
 
     command.Get(key) -> {
@@ -97,21 +93,18 @@ fn handle_command(
         Error(_) -> resp.encode(resp.Null)
       }
 
-      let assert Ok(_) =
-        glisten.send(conn, bytes_builder.from_bit_array(response))
-
-      state
+      #(response, state)
     }
 
     command.Info(command.Replication) -> {
       let response = resp.encode(resp.String("role:master"))
 
-      let assert Ok(_) =
-        glisten.send(conn, bytes_builder.from_bit_array(response))
-
-      state
+      #(response, state)
     }
   }
+
+  let assert Ok(_) =
+    glisten.send(conn, bytes_builder.from_bit_array(response))
 
   actor.continue(state)
 }
