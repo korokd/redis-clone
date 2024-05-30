@@ -99,6 +99,12 @@ fn handle_command(
 
       #(response, state)
     }
+
+    command.ReplConf(_) -> {
+      let response = resp.encode(resp.SimpleString("OK"))
+
+      #(response, state)
+    }
   }
 
   let assert Ok(_) = glisten.send(conn, bytes_builder.from_bit_array(response))

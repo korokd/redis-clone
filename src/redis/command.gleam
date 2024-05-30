@@ -4,26 +4,54 @@ import gleam/int
 import gleam/option.{type Option, None, Some}
 import gleam/string
 
-import redis/resp
+import redis/resp.{type Parsed, type RespData}
 
 pub type InfoSection {
   Replication
 }
 
+pub type ReplConfOption {
+  Capabilities(name: String)
+  ListeningPort(port: Int)
+}
+
 pub type Command {
   Ping
-  Echo(value: resp.RespData)
-  Set(key: String, value: resp.RespData, expiry: Option(Int))
+  Echo(value: RespData)
+  Set(key: String, value: RespData, expiry: Option(Int))
   Get(key: String)
-  Info(InfoSection)
+  Info(section: InfoSection)
+  ReplConf(option: ReplConfOption)
 }
 
 pub type CommandError {
-  UnexpectedArguments(command: String, arguments: List(resp.RespData))
+  UnexpectedArguments(command: String, arguments: List(RespData))
   UnknownCommand(command: String)
 }
 
-pub fn from_resp_data(data: resp.Parsed) -> Result(Command, CommandError) {
+pub fn to_resp_data(command: Command) -> RespData {
+  case command {
+    Ping -> resp.Array([resp.BulkString("PING")])
+
+    ReplConf(Capabilities(name)) ->
+      resp.Array([
+        resp.BulkString("REPLCONF"),
+        resp.BulkString("capa"),
+        resp.BulkString(name),
+      ])
+
+    ReplConf(ListeningPort(port)) ->
+      resp.Array([
+        resp.BulkString("REPLCONF"),
+        resp.BulkString("listening-port"),
+        resp.BulkString(int.to_string(port)),
+      ])
+
+    _ -> panic as "Unsupported command given to `command.to_resp_data`"
+  }
+}
+
+pub fn from_resp_data(data: Parsed) -> Result(Command, CommandError) {
   let resp.Parsed(resp_data, _) = data
 
   case resp_data {
@@ -68,11 +96,25 @@ pub fn from_resp_data(data: resp.Parsed) -> Result(Command, CommandError) {
 
         "get", [resp.BulkString(key)] -> Ok(Get(key))
 
-        "info", [resp.BulkString(replication)] ->
-          case string.lowercase(replication) {
+        "info", [resp.BulkString(section)] ->
+          case string.lowercase(section) {
             "replication" -> Ok(Info(Replication))
 
             _ -> Error(UnexpectedArguments(command, arguments))
+          }
+
+        "replconf", [resp.BulkString(option), argument] ->
+          case option, argument {
+            "capa", resp.BulkString(name) -> Ok(ReplConf(Capabilities(name)))
+
+            "listening-port", resp.BulkString(port) ->
+              case int.parse(port) {
+                Ok(port) -> Ok(ReplConf(ListeningPort(port)))
+
+                Error(_) -> Error(UnexpectedArguments(command, arguments))
+              }
+
+            _, _ -> Error(UnexpectedArguments(command, arguments))
           }
 
         "ping", _ -> Error(UnexpectedArguments(command, arguments))
