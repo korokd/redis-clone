@@ -21,6 +21,8 @@ pub fn init() -> Config {
 
   case replicaof {
     Ok(master) -> {
+      let assert Ok(_) = handshake(master)
+
       Slave(port, master)
     }
 
@@ -66,6 +68,22 @@ fn parse_arguments() -> #(Int, Result(ReplicaOf, Nil)) {
     })
 
   #(port, replicaof)
+}
+
+fn handshake(master: ReplicaOf) -> Result(Nil, mug.Error) {
+  let #(host, port) = master
+
+  let options =
+    mug.new(host, port: port)
+    |> mug.timeout(milliseconds: 500)
+
+  use socket <- result.try(mug.connect(options))
+
+  let msg =
+    resp.Array([resp.BulkString("PING")])
+    |> resp.encode()
+
+  mug.send(socket, msg)
 }
 
 pub fn get_port(config: Config) -> Int {
