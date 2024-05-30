@@ -2,7 +2,6 @@ import gleam/io
 
 import gleam/int
 import gleam/list
-import gleam/option.{type Option}
 import gleam/result
 import gleam/string
 
@@ -11,7 +10,8 @@ import argv.{Argv}
 import redis/store.{type Store}
 
 pub type Config {
-  Config(port: Int, replicaof: Option(#(String, Int)))
+  Master(port: Int, replid: String, repl_offset: Int)
+  Slave(port: Int, replicaof: #(String, Int))
 }
 
 pub opaque type State {
@@ -56,13 +56,29 @@ fn parse_arguments() -> Config {
         }
       }
     })
-    |> option.from_result()
 
-  Config(port, replicaof)
+  case replicaof {
+    Ok(master) -> Slave(port, master)
+
+    Error(_) -> {
+      let repl_offset = 0
+      let replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
+
+      Master(port, replid, repl_offset)
+    }
+  }
 }
 
 pub fn get_config(state: State) -> Config {
   state.config
+}
+
+pub fn get_port(state: State) -> Int {
+  case get_config(state) {
+    Master(port, _, _) -> port
+
+    Slave(port, _) -> port
+  }
 }
 
 pub fn get_store(state: State) -> Store {
