@@ -22,6 +22,7 @@ pub type Command {
   Get(key: String)
   Info(section: InfoSection)
   ReplConf(option: ReplConfOption)
+  Psync(replid: String, offset: Int)
 }
 
 pub type CommandError {
@@ -45,6 +46,13 @@ pub fn to_resp_data(command: Command) -> RespData {
         resp.BulkString("REPLCONF"),
         resp.BulkString("listening-port"),
         resp.BulkString(int.to_string(port)),
+      ])
+
+    Psync(replid, offset) ->
+      resp.Array([
+        resp.BulkString("PSYNC"),
+        resp.BulkString(replid),
+        resp.BulkString(int.to_string(offset)),
       ])
 
     _ -> panic as "Unsupported command given to `command.to_resp_data`"
@@ -117,10 +125,20 @@ pub fn from_resp_data(data: Parsed) -> Result(Command, CommandError) {
             _, _ -> Error(UnexpectedArguments(command, arguments))
           }
 
+        "psync", [resp.BulkString(replid), resp.BulkString(offset)] ->
+          case int.parse(offset) {
+            Ok(offset) -> Ok(Psync(replid, offset))
+
+            Error(_) -> Error(UnexpectedArguments(command, arguments))
+          }
+
         "ping", _ -> Error(UnexpectedArguments(command, arguments))
         "echo", _ -> Error(UnexpectedArguments(command, arguments))
         "set", _ -> Error(UnexpectedArguments(command, arguments))
         "get", _ -> Error(UnexpectedArguments(command, arguments))
+        "info", _ -> Error(UnexpectedArguments(command, arguments))
+        "replconf", _ -> Error(UnexpectedArguments(command, arguments))
+        "psync", _ -> Error(UnexpectedArguments(command, arguments))
 
         _, _ -> Error(UnknownCommand(command))
       }

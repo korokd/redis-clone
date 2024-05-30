@@ -1,5 +1,8 @@
+import gleam/io
+
 import gleam/int
 import gleam/list
+import gleam/regex
 import gleam/result
 import gleam/string
 
@@ -9,11 +12,11 @@ import mug.{type Socket}
 import redis/command
 import redis/resp
 
-type MasterInfo {
+pub opaque type MasterInfo {
   MasterInfo(host: String, port: Int)
 }
 
-pub opaque type Config {
+pub type Config {
   Master(port: Int, replid: String, repl_offset: Int)
   Slave(port: Int, master_info: MasterInfo)
 }
@@ -87,6 +90,7 @@ fn handshake(own_port: Int, master: MasterInfo) -> Result(Nil, Nil) {
   let assert Ok(_) = handshake_ping(socket)
   let assert Ok(_) = handshake_port(socket, own_port)
   let assert Ok(_) = handshake_capa(socket)
+  let assert Ok(_) = handshake_psync(socket)
 }
 
 fn handshake_ping(socket: Socket) -> Result(Nil, Nil) {
@@ -159,6 +163,41 @@ fn handshake_capa(socket: Socket) -> Result(Nil, Nil) {
     decoded_replconf_capa_response
 
   Ok(Nil)
+}
+
+fn handshake_psync(socket: Socket) -> Result(Nil, Nil) {
+  let replconf_psync =
+    command.Psync("?", -1)
+    |> command.to_resp_data()
+    |> resp.encode()
+
+  use _ <- result.try(
+    mug.send(socket, replconf_psync)
+    |> result.nil_error(),
+  )
+  use replconf_psync_response <- result.try(
+    mug.receive(socket, 1000)
+    |> result.nil_error(),
+  )
+  use decoded_replconf_psync_response <- result.try(
+    resp.parse(replconf_psync_response)
+    |> result.nil_error(),
+  )
+  let assert resp.Parsed(resp.SimpleString(response_string), _) =
+    decoded_replconf_psync_response
+
+  use response_regex <- result.try(
+    regex.compile(
+      "FULLRESYNC\\s.+?\\d$",
+      with: regex.Options(case_insensitive: True, multi_line: True),
+    )
+    |> result.nil_error(),
+  )
+  case regex.check(with: response_regex, content: response_string) {
+    True -> Ok(Nil)
+
+    False -> Error(Nil)
+  }
 }
 
 pub fn get_port(config: Config) -> Int {

@@ -2,6 +2,7 @@ import gleam/io
 
 import gleam/bytes_builder
 import gleam/erlang/process
+import gleam/int
 import gleam/option.{None}
 import gleam/otp/actor.{type Next}
 import gleam/string
@@ -102,6 +103,19 @@ fn handle_command(
 
     command.ReplConf(_) -> {
       let response = resp.encode(resp.SimpleString("OK"))
+
+      #(response, state)
+    }
+
+    command.Psync(_, _) -> {
+      let response = case state.get_config(state) {
+        config.Master(_, replid, repl_offset) ->
+          resp.encode(resp.SimpleString(
+            "FULLRESYNC " <> replid <> " " <> int.to_string(repl_offset),
+          ))
+
+        config.Slave(_, _) -> resp.encode(resp.Null)
+      }
 
       #(response, state)
     }
