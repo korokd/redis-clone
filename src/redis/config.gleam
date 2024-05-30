@@ -104,7 +104,7 @@ fn handshake_ping(socket: Socket) -> Result(Nil, Nil) {
     |> result.nil_error(),
   )
   use ping_response <- result.try(
-    mug.receive(socket, 1000)
+    mug.receive(socket, timeout_milliseconds: 1000)
     |> result.nil_error(),
   )
   use decoded_ping_response <- result.try(
@@ -128,7 +128,7 @@ fn handshake_port(socket: Socket, own_port: Int) -> Result(Nil, Nil) {
     |> result.nil_error(),
   )
   use replconf_port_response <- result.try(
-    mug.receive(socket, 1000)
+    mug.receive(socket, timeout_milliseconds: 1000)
     |> result.nil_error(),
   )
   use decoded_replconf_port_response <- result.try(
@@ -152,7 +152,7 @@ fn handshake_capa(socket: Socket) -> Result(Nil, Nil) {
     |> result.nil_error(),
   )
   use replconf_capa_response <- result.try(
-    mug.receive(socket, 1000)
+    mug.receive(socket, timeout_milliseconds: 1000)
     |> result.nil_error(),
   )
   use decoded_replconf_capa_response <- result.try(
@@ -176,7 +176,7 @@ fn handshake_psync(socket: Socket) -> Result(Nil, Nil) {
     |> result.nil_error(),
   )
   use replconf_psync_response <- result.try(
-    mug.receive(socket, 1000)
+    mug.receive(socket, timeout_milliseconds: 1000)
     |> result.nil_error(),
   )
   use decoded_replconf_psync_response <- result.try(
@@ -193,11 +193,18 @@ fn handshake_psync(socket: Socket) -> Result(Nil, Nil) {
     )
     |> result.nil_error(),
   )
-  case regex.check(with: response_regex, content: response_string) {
+  use _ <- result.try(case
+    regex.check(with: response_regex, content: response_string)
+  {
     True -> Ok(Nil)
 
     False -> Error(Nil)
-  }
+  })
+
+  let assert Ok(_) =
+    mug.receive(socket, timeout_milliseconds: 1000)
+    |> result.nil_error()
+  Ok(Nil)
 }
 
 pub fn get_port(config: Config) -> Int {
