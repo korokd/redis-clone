@@ -18,7 +18,7 @@ pub opaque type MasterInfo {
 
 pub type Config {
   Master(port: Int, replid: String, repl_offset: Int)
-  Slave(port: Int, master_info: MasterInfo)
+  Replica(port: Int, master_info: MasterInfo)
 }
 
 pub fn init() -> Config {
@@ -28,7 +28,7 @@ pub fn init() -> Config {
     Ok(master) -> {
       let assert Ok(_) = handshake(port, master)
 
-      Slave(port, master)
+      Replica(port, master)
     }
 
     Error(_) -> {
@@ -75,8 +75,8 @@ fn parse_arguments() -> #(Int, Result(MasterInfo, Nil)) {
   #(port, replicaof)
 }
 
-fn handshake(own_port: Int, master: MasterInfo) -> Result(Nil, Nil) {
-  let MasterInfo(host, master_port) = master
+fn handshake(own_port: Int, master_info: MasterInfo) -> Result(Nil, Nil) {
+  let MasterInfo(host, master_port) = master_info
 
   let options =
     mug.new(host, port: master_port)
@@ -204,7 +204,7 @@ pub fn get_port(config: Config) -> Int {
   case config {
     Master(port, _, _) -> port
 
-    Slave(port, _) -> port
+    Replica(port, _) -> port
   }
 }
 
@@ -216,6 +216,6 @@ pub fn get_replication_info(config: Config) {
       "master_repl_offset:" <> int.to_string(repl_offset),
     ]
 
-    Slave(_, _) -> ["role:slave"]
+    Replica(_, _) -> ["role:slave"]
   }
 }

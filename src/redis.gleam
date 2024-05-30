@@ -138,7 +138,7 @@ fn handle_command(
             "FULLRESYNC " <> replid <> " " <> int.to_string(repl_offset),
           ))
 
-        config.Slave(_, _) -> resp.encode(resp.Null)
+        config.Replica(_, _) -> resp.encode(resp.Null)
       }
 
       let assert Ok(_) =
