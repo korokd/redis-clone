@@ -58,7 +58,7 @@ fn handle_command(
 ) -> Next(Message(a), State) {
   let #(response, state) = case command {
     command.Ping -> {
-      let response = resp.encode(resp.String("PONG"))
+      let response = resp.encode(resp.SimpleString("PONG"))
 
       #(response, state)
     }
@@ -70,7 +70,7 @@ fn handle_command(
     }
 
     command.Set(key, value, expiry) -> {
-      let response = resp.encode(resp.String("OK"))
+      let response = resp.encode(resp.SimpleString("OK"))
       let state =
         state.get_store(state)
         |> store.upsert(key, value, expiry)
@@ -110,7 +110,7 @@ fn handle_command(
           }
         })
         |> string.join("\r\n")
-        |> resp.String()
+        |> resp.BulkString()
         |> resp.encode()
 
       #(response, state)

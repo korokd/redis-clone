@@ -27,16 +27,36 @@ pub fn from_resp_data(data: resp.Parsed) -> Result(Command, CommandError) {
   let resp.Parsed(resp_data, _) = data
 
   case resp_data {
+    resp.SimpleString(command) ->
+      case command {
+        "ping" -> Ok(Ping)
+
+        _ -> Error(UnknownCommand(command))
+      }
+
+    resp.BulkString(command) ->
+      case command {
+        "ping" -> Ok(Ping)
+
+        _ -> Error(UnknownCommand(command))
+      }
+
     resp.Array(elements) -> {
-      let assert [resp.String(command), ..arguments] = elements
+      let assert [resp.BulkString(command), ..arguments] = elements
 
       case string.lowercase(command), arguments {
         "ping", [] -> Ok(Ping)
 
         "echo", [value] -> Ok(Echo(value))
 
-        "set", [resp.String(key), value] -> Ok(Set(key, value, None))
-        "set", [resp.String(key), value, resp.String(px), resp.String(expiry)] ->
+        "set", [resp.BulkString(key), value] -> Ok(Set(key, value, None))
+        "set",
+          [
+            resp.BulkString(key),
+            value,
+            resp.BulkString(px),
+            resp.BulkString(expiry),
+          ] ->
           case string.lowercase(px) {
             "px" -> {
               let assert Ok(expiry) = int.parse(expiry)
@@ -46,9 +66,9 @@ pub fn from_resp_data(data: resp.Parsed) -> Result(Command, CommandError) {
             _ -> Error(UnexpectedArguments(command, arguments))
           }
 
-        "get", [resp.String(key)] -> Ok(Get(key))
+        "get", [resp.BulkString(key)] -> Ok(Get(key))
 
-        "info", [resp.String(replication)] ->
+        "info", [resp.BulkString(replication)] ->
           case string.lowercase(replication) {
             "replication" -> Ok(Info(Replication))
 
@@ -61,14 +81,6 @@ pub fn from_resp_data(data: resp.Parsed) -> Result(Command, CommandError) {
         "get", _ -> Error(UnexpectedArguments(command, arguments))
 
         _, _ -> Error(UnknownCommand(command))
-      }
-    }
-
-    resp.String(command) -> {
-      case command {
-        "ping" -> Ok(Ping)
-
-        _ -> Error(UnknownCommand(command))
       }
     }
 

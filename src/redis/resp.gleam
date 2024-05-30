@@ -6,8 +6,9 @@ import gleam/list
 import gleam/result
 
 pub type RespData {
+  SimpleString(content: String)
+  BulkString(content: String)
   Array(elements: List(RespData))
-  String(content: String)
   Null
 }
 
@@ -27,7 +28,11 @@ pub fn encode(input: RespData) -> BitArray {
 
 fn en(acc: BitArray, data: RespData) -> BitArray {
   case data {
-    String(content) -> {
+    SimpleString(content) -> {
+      <<acc:bits, "+":utf8, content:utf8, "\r\n":utf8>>
+    }
+
+    BulkString(content) -> {
       let bytes = int.to_string(bit_array.byte_size(<<content:utf8>>))
       <<acc:bits, "$":utf8, bytes:utf8, "\r\n":utf8, content:utf8, "\r\n":utf8>>
     }
@@ -66,7 +71,8 @@ fn parse_simple_string(
 
     <<"\r\n":utf8, input:bits>> -> {
       use content <- result.try(parse_unicode(acc))
-      Ok(Parsed(String(content), input))
+
+      Ok(Parsed(SimpleString(content), input))
     }
 
     <<c, input:bits>> -> parse_simple_string(input, <<acc:bits, c>>)
@@ -89,7 +95,8 @@ fn parse_bulk_string(input: BitArray) -> Result(Parsed, ParseError) {
 
     Ok(content), Ok(<<"\r\n":utf8, rest:bits>>) -> {
       use content <- result.try(parse_unicode(content))
-      Ok(Parsed(String(content), rest))
+
+      Ok(Parsed(BulkString(content), rest))
     }
 
     _, Ok(rest) -> Error(UnexpectedInput(rest))
