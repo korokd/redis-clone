@@ -2,22 +2,23 @@ import gleam/io
 
 import gleam/bytes_builder
 import gleam/erlang/process
-import gleam/int
-import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{None}
 import gleam/otp/actor.{type Next}
 import gleam/string
 
 import glisten.{type Connection, type Message}
 
 import redis/command.{type Command, type CommandError}
+import redis/config
 import redis/resp
 import redis/state.{type State}
 import redis/store
 
 pub fn main() {
   let state = state.init()
-  let port = state.get_port(state)
+  let port =
+    state.get_config(state)
+    |> config.get_port()
 
   let assert Ok(_) =
     glisten.handler(fn(_conn) { #(state, None) }, loop)
@@ -89,26 +90,9 @@ fn handle_command(
     }
 
     command.Info(command.Replication) -> {
-      let #(role, replid, repl_offset) = case state.get_config(state) {
-        state.Slave(_, _) -> #(Some("slave"), None, None)
-
-        state.Master(_, replid, repl_offset) -> #(
-          Some("master"),
-          Some(replid),
-          Some(int.to_string(repl_offset)),
-        )
-      }
-
       let response =
-        [#("role", role), #("master_replid", replid), #("master_repl_offset", repl_offset)]
-        |> list.filter_map(fn(curr) {
-          let #(key, value) = curr
-
-          case value {
-            Some(value) -> Ok(key <> ":" <> value)
-            None -> Error(Nil)
-          }
-        })
+        state.get_config(state)
+        |> config.get_replication_info()
         |> string.join("\r\n")
         |> resp.BulkString()
         |> resp.encode()
