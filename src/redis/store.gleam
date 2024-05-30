@@ -28,14 +28,17 @@ pub opaque type Metadata {
 type Value =
   #(ValueRaw, Metadata)
 
-pub type Store =
-  Dict(Key, Value)
+pub opaque type Store {
+  Store(store: Dict(Key, Value))
+}
 
 pub fn new() -> Store {
-  dict.new()
+  Store(dict.new())
 }
 
 pub fn upsert(store: Store, key: Key, value: ValueRaw, expiry: Expiry) -> Store {
+  let Store(store) = store
+
   let updated_at =
     birl.now()
     |> birl.to_unix_milli()
@@ -47,10 +50,14 @@ pub fn upsert(store: Store, key: Key, value: ValueRaw, expiry: Expiry) -> Store 
 
   let metadata = Metadata(created_at, updated_at, expiry)
 
-  dict.insert(store, key, #(value, metadata))
+  let store = dict.insert(store, key, #(value, metadata))
+
+  Store(store)
 }
 
 pub fn get(store: Store, key: Key) -> Result(ValueRaw, StoreError) {
+  let Store(store) = store
+
   case dict.get(store, key) {
     Ok(#(value, Metadata(_, updated_at, expiry))) -> {
       let now =
