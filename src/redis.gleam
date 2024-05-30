@@ -15,6 +15,8 @@ import redis/resp
 import redis/state.{type State}
 import redis/store
 
+const empty_rdb_file_in_base_64 = "UkVESVMwMDEx+glyZWRpcy12ZXIFNy4yLjD6CnJlZGlzLWJpdHPAQPoFY3RpbWXCbQi8ZfoIdXNlZC1tZW3CsMQQAPoIYW9mLWJhc2XAAP/wbjv+wP9aog=="
+
 pub fn main() {
   let state = state.init()
   let port =
@@ -58,17 +60,27 @@ fn handle_command(
   state: State,
   conn: Connection(a),
 ) -> Next(Message(a), State) {
-  let #(response, state) = case command {
+  case command {
+    command.RDBFile(_) -> {
+      actor.continue(state)
+    }
+
     command.Ping -> {
       let response = resp.encode(resp.SimpleString("PONG"))
 
-      #(response, state)
+      let assert Ok(_) =
+        glisten.send(conn, bytes_builder.from_bit_array(response))
+
+      actor.continue(state)
     }
 
     command.Echo(value) -> {
       let response = resp.encode(value)
 
-      #(response, state)
+      let assert Ok(_) =
+        glisten.send(conn, bytes_builder.from_bit_array(response))
+
+      actor.continue(state)
     }
 
     command.Set(key, value, expiry) -> {
@@ -78,7 +90,10 @@ fn handle_command(
         |> store.upsert(key, value, expiry)
         |> state.update_store(state)
 
-      #(response, state)
+      let assert Ok(_) =
+        glisten.send(conn, bytes_builder.from_bit_array(response))
+
+      actor.continue(state)
     }
 
     command.Get(key) -> {
@@ -87,7 +102,10 @@ fn handle_command(
         Error(_) -> resp.encode(resp.Null)
       }
 
-      #(response, state)
+      let assert Ok(_) =
+        glisten.send(conn, bytes_builder.from_bit_array(response))
+
+      actor.continue(state)
     }
 
     command.Info(command.Replication) -> {
@@ -98,17 +116,23 @@ fn handle_command(
         |> resp.BulkString()
         |> resp.encode()
 
-      #(response, state)
+      let assert Ok(_) =
+        glisten.send(conn, bytes_builder.from_bit_array(response))
+
+      actor.continue(state)
     }
 
     command.ReplConf(_) -> {
       let response = resp.encode(resp.SimpleString("OK"))
 
-      #(response, state)
+      let assert Ok(_) =
+        glisten.send(conn, bytes_builder.from_bit_array(response))
+
+      actor.continue(state)
     }
 
     command.Psync(_, _) -> {
-      let response = case state.get_config(state) {
+      let full_resync = case state.get_config(state) {
         config.Master(_, replid, repl_offset) ->
           resp.encode(resp.SimpleString(
             "FULLRESYNC " <> replid <> " " <> int.to_string(repl_offset),
@@ -117,13 +141,16 @@ fn handle_command(
         config.Slave(_, _) -> resp.encode(resp.Null)
       }
 
-      #(response, state)
+      let assert Ok(_) =
+        glisten.send(conn, bytes_builder.from_bit_array(full_resync))
+
+      let file = resp.encode(resp.RDBFile(empty_rdb_file_in_base_64))
+
+      let assert Ok(_) = glisten.send(conn, bytes_builder.from_bit_array(file))
+
+      actor.continue(state)
     }
   }
-
-  let assert Ok(_) = glisten.send(conn, bytes_builder.from_bit_array(response))
-
-  actor.continue(state)
 }
 
 fn handle_command_error(error: CommandError) {

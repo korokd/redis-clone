@@ -6,6 +6,7 @@ import gleam/list
 import gleam/result
 
 pub type RespData {
+  RDBFile(content: String)
   SimpleString(content: String)
   BulkString(content: String)
   Array(elements: List(RespData))
@@ -28,6 +29,13 @@ pub fn encode(input: RespData) -> BitArray {
 
 fn en(acc: BitArray, data: RespData) -> BitArray {
   case data {
+    RDBFile(content) -> {
+      let as_bit_array =
+        result.unwrap(bit_array.base64_decode(content), or: <<>>)
+      let bytes = int.to_string(bit_array.byte_size(as_bit_array))
+      <<acc:bits, "$":utf8, bytes:utf8, "\r\n":utf8, as_bit_array:bits>>
+    }
+
     SimpleString(content) -> {
       <<acc:bits, "+":utf8, content:utf8, "\r\n":utf8>>
     }
