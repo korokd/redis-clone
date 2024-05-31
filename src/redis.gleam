@@ -63,7 +63,7 @@ fn handle_command(
   conn: Connection(BitArray),
 ) -> Next(Message(a), State) {
   case command {
-    command.RDBFile(_) -> {
+    command.Binary(_) -> {
       actor.continue(state)
     }
 
@@ -154,7 +154,7 @@ fn handle_command(
           let assert Ok(_) =
             glisten.send(conn, bytes_builder.from_bit_array(response))
 
-          let file = resp.encode(resp.RDBFile(empty_rdb_file_in_base_64))
+          let file = resp.encode(resp.Binary(empty_rdb_file_in_base_64))
 
           let assert Ok(_) =
             glisten.send(conn, bytes_builder.from_bit_array(file))

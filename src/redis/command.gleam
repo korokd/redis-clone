@@ -16,7 +16,7 @@ pub type ReplConfOption {
 }
 
 pub type Command {
-  RDBFile(content: String)
+  Binary(content: String)
   Ping
   Echo(value: RespData)
   Set(key: String, value: RespData, expiry: Option(Int))
@@ -82,7 +82,7 @@ pub fn from_resp_data(data: Parsed) -> Result(Command, CommandError) {
   let resp.Parsed(resp_data, _) = data
 
   case resp_data {
-    resp.RDBFile(content) -> Ok(RDBFile(content))
+    resp.Binary(content) -> Ok(Binary(content))
 
     resp.SimpleString(command) ->
       case command {
