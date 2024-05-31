@@ -2,6 +2,7 @@ import gleam/io
 
 import gleam/bytes_builder
 import gleam/erlang/process.{type Subject}
+import gleam/int
 import gleam/list
 import gleam/otp/actor.{type Next}
 import gleam/result
@@ -27,7 +28,7 @@ pub opaque type ReplicationMessage {
   GetReplicationData(Subject(ReplicationData))
 }
 
-pub fn setup_for_replication() -> Master {
+pub fn init() -> Master {
   let replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
   let repl_offset = 0
 
@@ -74,4 +75,14 @@ pub fn propagate(master: Master, command: Command) -> Result(Nil, SocketReason) 
   |> list.map(fn(conn) { glisten.send(conn, bytes_builder.from_bit_array(msg)) })
   |> result.all()
   |> result.map(fn(_) { Nil })
+}
+
+pub fn get_info(master: Master) -> List(String) {
+  let ReplicationData(replid, repl_offset, _) = get_replication_data(master)
+
+  [
+    "role:master",
+    "master_replid:" <> replid,
+    "master_repl_offset:" <> int.to_string(repl_offset),
+  ]
 }

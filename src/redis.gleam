@@ -13,6 +13,7 @@ import redis/command.{type Command, type CommandError}
 import redis/config
 import redis/master
 import redis/resp
+import redis/role
 import redis/state.{type State}
 import redis/store
 
@@ -115,7 +116,8 @@ fn handle_command(
     command.Info(command.Replication) -> {
       let response =
         state.get_config(state)
-        |> config.get_replication_info()
+        |> config.get_role()
+        |> role.get_info()
         |> string.join("\r\n")
         |> resp.BulkString()
         |> resp.encode()
@@ -136,9 +138,11 @@ fn handle_command(
     }
 
     command.Psync(_, _) -> {
-      case state.get_config(state) {
-        config.Master(_, master) -> {
-          // TODO refactor: repeating code from redis/config
+      case
+        state.get_config(state)
+        |> config.get_role()
+      {
+        role.Master(master) -> {
           let master.ReplicationData(replid, repl_offset, _) =
             master.get_replication_data(master)
 
@@ -160,7 +164,7 @@ fn handle_command(
           actor.continue(state)
         }
 
-        config.Replica(_, _) -> {
+        role.Replica -> {
           let response = resp.encode(resp.Null)
 
           let assert Ok(_) =
@@ -177,10 +181,13 @@ pub fn propagate_if_master(
   command: Command,
   state: State,
 ) -> Result(Nil, SocketReason) {
-  case state.get_config(state) {
-    config.Replica(_, _) -> Ok(Nil)
+  case
+    state.get_config(state)
+    |> config.get_role()
+  {
+    role.Replica -> Ok(Nil)
 
-    config.Master(_, master) -> master.propagate(master, command)
+    role.Master(master) -> master.propagate(master, command)
   }
 }
 
