@@ -10,6 +10,7 @@ import argv.{Argv}
 import mug.{type Socket}
 
 import redis/command
+import redis/master.{type Master}
 import redis/resp
 
 pub opaque type MasterInfo {
@@ -17,7 +18,7 @@ pub opaque type MasterInfo {
 }
 
 pub type Config {
-  Master(port: Int, replid: String, repl_offset: Int)
+  Master(port: Int, data: Master)
   Replica(port: Int, master_info: MasterInfo)
 }
 
@@ -32,14 +33,12 @@ pub fn init() -> Config {
     }
 
     Error(_) -> {
-      let repl_offset = 0
-      let replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
-
-      Master(port, replid, repl_offset)
+      Master(port, master.setup_for_replication())
     }
   }
 }
 
+// TODO refactor: actually handle the Errors
 fn parse_arguments() -> #(Int, Result(MasterInfo, Nil)) {
   let Argv(_, _, args) = argv.load()
 
@@ -183,7 +182,7 @@ fn handshake_psync(socket: Socket) -> Result(Nil, Nil) {
     resp.parse(replconf_psync_response)
     |> result.nil_error(),
   )
-  let assert resp.Parsed(resp.SimpleString(response_string), _) =
+  let assert resp.Parsed(resp.SimpleString(response_string), excess) =
     decoded_replconf_psync_response
 
   use response_regex <- result.try(
@@ -201,27 +200,37 @@ fn handshake_psync(socket: Socket) -> Result(Nil, Nil) {
     False -> Error(Nil)
   })
 
-  let assert Ok(_) =
-    mug.receive(socket, timeout_milliseconds: 1000)
-    |> result.nil_error()
-  Ok(Nil)
+  case excess {
+    <<>> ->
+      mug.receive(socket, timeout_milliseconds: 1000)
+      |> result.nil_error()
+      |> result.map(fn(_) { Nil })
+
+    _rdb_file -> Ok(Nil)
+  }
 }
 
 pub fn get_port(config: Config) -> Int {
   case config {
-    Master(port, _, _) -> port
+    Master(port, _) -> port
 
     Replica(port, _) -> port
   }
 }
 
-pub fn get_replication_info(config: Config) {
+// TODO refactor: redis/master.get_replication_data and this are too different to be named so similarly
+pub fn get_replication_info(config: Config) -> List(String) {
   case config {
-    Master(_, replid, repl_offset) -> [
-      "role:master",
-      "master_replid:" <> replid,
-      "master_repl_offset:" <> int.to_string(repl_offset),
-    ]
+    Master(_, master) -> {
+      let master.ReplicationData(replid, repl_offset, _) =
+        master.get_replication_data(master)
+
+      [
+        "role:master",
+        "master_replid:" <> replid,
+        "master_repl_offset:" <> int.to_string(repl_offset),
+      ]
+    }
 
     Replica(_, _) -> ["role:slave"]
   }

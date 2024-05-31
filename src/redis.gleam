@@ -7,10 +7,11 @@ import gleam/option.{None}
 import gleam/otp/actor.{type Next}
 import gleam/string
 
-import glisten.{type Connection, type Message}
+import glisten.{type Connection, type Message, type SocketReason}
 
 import redis/command.{type Command, type CommandError}
 import redis/config
+import redis/master
 import redis/resp
 import redis/state.{type State}
 import redis/store
@@ -33,7 +34,7 @@ pub fn main() {
 fn loop(
   msg: Message(a),
   state: State,
-  conn: Connection(a),
+  conn: Connection(BitArray),
 ) -> Next(Message(a), State) {
   case msg {
     glisten.Packet(data) -> handle_message(data, state, conn)
@@ -44,7 +45,7 @@ fn loop(
 fn handle_message(
   msg: BitArray,
   state: State,
-  conn: Connection(a),
+  conn: Connection(BitArray),
 ) -> Next(Message(a), State) {
   let assert Ok(data) = resp.parse(msg)
 
@@ -58,7 +59,7 @@ fn handle_message(
 fn handle_command(
   command: Command,
   state: State,
-  conn: Connection(a),
+  conn: Connection(BitArray),
 ) -> Next(Message(a), State) {
   case command {
     command.RDBFile(_) -> {
@@ -92,6 +93,9 @@ fn handle_command(
 
       let assert Ok(_) =
         glisten.send(conn, bytes_builder.from_bit_array(response))
+
+      // The Master does not wait for the Replicas to respond
+      let _propagated = propagate_if_master(command, state)
 
       actor.continue(state)
     }
@@ -132,24 +136,51 @@ fn handle_command(
     }
 
     command.Psync(_, _) -> {
-      let full_resync = case state.get_config(state) {
-        config.Master(_, replid, repl_offset) ->
-          resp.encode(resp.SimpleString(
-            "FULLRESYNC " <> replid <> " " <> int.to_string(repl_offset),
-          ))
+      case state.get_config(state) {
+        config.Master(_, master) -> {
+          // TODO refactor: repeating code from redis/config
+          let master.ReplicationData(replid, repl_offset, _) =
+            master.get_replication_data(master)
 
-        config.Replica(_, _) -> resp.encode(resp.Null)
+          let response =
+            resp.encode(resp.SimpleString(
+              "FULLRESYNC " <> replid <> " " <> int.to_string(repl_offset),
+            ))
+
+          let assert Ok(_) =
+            glisten.send(conn, bytes_builder.from_bit_array(response))
+
+          let file = resp.encode(resp.RDBFile(empty_rdb_file_in_base_64))
+
+          let assert Ok(_) =
+            glisten.send(conn, bytes_builder.from_bit_array(file))
+
+          master.add_replica(master, conn)
+
+          actor.continue(state)
+        }
+
+        config.Replica(_, _) -> {
+          let response = resp.encode(resp.Null)
+
+          let assert Ok(_) =
+            glisten.send(conn, bytes_builder.from_bit_array(response))
+
+          actor.continue(state)
+        }
       }
-
-      let assert Ok(_) =
-        glisten.send(conn, bytes_builder.from_bit_array(full_resync))
-
-      let file = resp.encode(resp.RDBFile(empty_rdb_file_in_base_64))
-
-      let assert Ok(_) = glisten.send(conn, bytes_builder.from_bit_array(file))
-
-      actor.continue(state)
     }
+  }
+}
+
+pub fn propagate_if_master(
+  command: Command,
+  state: State,
+) -> Result(Nil, SocketReason) {
+  case state.get_config(state) {
+    config.Replica(_, _) -> Ok(Nil)
+
+    config.Master(_, master) -> master.propagate(master, command)
   }
 }
 

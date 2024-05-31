@@ -35,6 +35,24 @@ pub fn to_resp_data(command: Command) -> RespData {
   case command {
     Ping -> resp.Array([resp.BulkString("PING")])
 
+    Set(key, value, expiry) -> {
+      let additional_arguments = case expiry {
+        Some(expiry) -> [
+          resp.BulkString("px"),
+          resp.BulkString(int.to_string(expiry)),
+        ]
+
+        None -> []
+      }
+
+      resp.Array([
+        resp.BulkString("SET"),
+        resp.BulkString(key),
+        value,
+        ..additional_arguments
+      ])
+    }
+
     ReplConf(Capabilities(name)) ->
       resp.Array([
         resp.BulkString("REPLCONF"),
@@ -56,7 +74,7 @@ pub fn to_resp_data(command: Command) -> RespData {
         resp.BulkString(int.to_string(offset)),
       ])
 
-    _ -> panic as "Unsupported command given to `command.to_resp_data`"
+    _ -> panic as "Unsupported command @ `command.to_resp_data`"
   }
 }
 
