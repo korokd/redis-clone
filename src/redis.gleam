@@ -29,6 +29,7 @@ pub fn main() {
     glisten.handler(fn(_conn) { #(state, None) }, loop)
     |> glisten.serve(port)
 
+  io.println("Listening on port " <> int.to_string(port))
   process.sleep_forever()
 }
 
@@ -164,7 +165,7 @@ fn handle_command(
           actor.continue(state)
         }
 
-        role.Replica -> {
+        role.Replica(_) -> {
           let response = resp.encode(resp.Null)
 
           let assert Ok(_) =
@@ -185,7 +186,7 @@ pub fn propagate_if_master(
     state.get_config(state)
     |> config.get_role()
   {
-    role.Replica -> Ok(Nil)
+    role.Replica(_) -> Ok(Nil)
 
     role.Master(master) -> master.propagate(master, command)
   }

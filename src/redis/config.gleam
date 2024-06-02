@@ -6,9 +6,7 @@ import gleam/result
 import gleam/string
 
 import argv.{Argv}
-import mug.{type Socket}
 
-import redis/master.{type Master}
 import redis/role.{type Role}
 
 pub opaque type Config {
@@ -20,7 +18,10 @@ pub fn init() -> Config {
 
   case replicaof {
     Ok(#(master_host, master_port)) -> {
-      Config(port: own_port, role: role.init_replica(own_port, master_host, master_port))
+      Config(
+        port: own_port,
+        role: role.init_replica(own_port, master_host, master_port),
+      )
     }
 
     Error(_) -> {
