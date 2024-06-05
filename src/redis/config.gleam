@@ -7,10 +7,12 @@ import gleam/string
 
 import argv.{Argv}
 
-import redis/role.{type Role}
+import redis/master.{type Master}
+import redis/replica.{type Replica}
 
-pub opaque type Config {
-  Config(port: Int, role: Role)
+pub type Config {
+  Master(port: Int, master: Master)
+  Replica(port: Int, replica: Replica)
 }
 
 pub fn init() -> Config {
@@ -18,14 +20,11 @@ pub fn init() -> Config {
 
   case replicaof {
     Ok(#(master_host, master_port)) -> {
-      Config(
-        port: own_port,
-        role: role.init_replica(own_port, master_host, master_port),
-      )
+      init_replica(own_port, master_host, master_port)
     }
 
     Error(_) -> {
-      Config(port: own_port, role: role.init_master())
+      init_master(own_port)
     }
   }
 }
@@ -66,10 +65,25 @@ fn parse_arguments() -> #(Int, Result(#(String, Int), Nil)) {
   #(port, replicaof)
 }
 
-pub fn get_port(config: Config) -> Int {
-  config.port
+fn init_master(port: Int) -> Config {
+  Master(port: port, master: master.init())
 }
 
-pub fn get_role(config: Config) -> Role {
-  config.role
+fn init_replica(own_port: Int, master_host: String, master_port: Int) -> Config {
+  Replica(
+    port: own_port,
+    replica: replica.init(own_port, master_host, master_port),
+  )
+}
+
+pub fn get_info(config: Config) -> List(String) {
+  case config {
+    Master(_port, master) -> master.get_info(master)
+
+    Replica(_port, _replica) -> replica.get_info()
+  }
+}
+
+pub fn get_port(config: Config) -> Int {
+  config.port
 }
