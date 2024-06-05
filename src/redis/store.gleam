@@ -1,7 +1,13 @@
 import gleam/io
 
+import gleam/bytes_builder
 import gleam/dict.{type Dict}
+import gleam/erlang/process.{type Subject}
+import gleam/int
+import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/otp/actor.{type Next}
+import gleam/result
 
 import birl
 
@@ -28,36 +34,62 @@ pub opaque type Metadata {
 type Value =
   #(ValueRaw, Metadata)
 
-pub opaque type Store {
-  Store(store: Dict(Key, Value))
+pub type Store =
+  Subject(StoreMessage)
+
+pub type StoreData {
+  StoreData(store: Dict(Key, Value))
 }
 
-pub fn new() -> Store {
-  Store(dict.new())
+pub opaque type StoreMessage {
+  GetStoreData(Subject(StoreData))
+  Set(key: Key, value: ValueRaw, expiry: Expiry)
 }
 
-pub fn upsert(store: Store, key: Key, value: ValueRaw, expiry: Expiry) -> Store {
-  let Store(store) = store
+pub fn init() -> Store {
+  let assert Ok(store) =
+    actor.start(StoreData(store: dict.new()), handle_storage)
 
-  let updated_at =
-    birl.now()
-    |> birl.to_unix_milli()
+  store
+}
 
-  let created_at = case dict.get(store, key) {
-    Ok(#(_, Metadata(created_at, _, _))) -> created_at
-    Error(_) -> updated_at
+fn handle_storage(
+  msg: StoreMessage,
+  state: StoreData,
+) -> Next(StoreMessage, StoreData) {
+  case msg {
+    GetStoreData(subject) -> {
+      process.send(subject, state)
+
+      actor.continue(state)
+    }
+
+    Set(key, value, expiry) -> {
+      let updated_at =
+        birl.now()
+        |> birl.to_unix_milli()
+
+      let created_at = case dict.get(state.store, key) {
+        Ok(#(_, Metadata(created_at, _, _))) -> created_at
+        Error(_) -> updated_at
+      }
+
+      let metadata = Metadata(created_at, updated_at, expiry)
+
+      let store = dict.insert(state.store, key, #(value, metadata))
+      let state = StoreData(store: store)
+
+      actor.continue(state)
+    }
   }
+}
 
-  let metadata = Metadata(created_at, updated_at, expiry)
-
-  let store = dict.insert(store, key, #(value, metadata))
-
-  Store(store)
+pub fn upsert(store: Store, key: Key, value: ValueRaw, expiry: Expiry) -> Nil {
+  process.send(store, Set(key, value, expiry))
 }
 
 pub fn get(store: Store, key: Key) -> Result(ValueRaw, StoreError) {
-  let Store(store) = store
-
+  let StoreData(store) = process.call(store, GetStoreData, 10)
   case dict.get(store, key) {
     Ok(#(value, Metadata(_, updated_at, expiry))) -> {
       let now =

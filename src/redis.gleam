@@ -10,19 +10,23 @@ import gleam/string
 import glisten.{type Connection, type Message, type SocketReason}
 
 import redis/command.{type Command, type CommandError}
-import redis/config
+import redis/config.{type Config}
 import redis/master
 import redis/resp
-import redis/state.{type State}
-import redis/store
+import redis/store.{type Store}
 
 const empty_rdb_file_in_base_64 = "UkVESVMwMDEx+glyZWRpcy12ZXIFNy4yLjD6CnJlZGlzLWJpdHPAQPoFY3RpbWXCbQi8ZfoIdXNlZC1tZW3CsMQQAPoIYW9mLWJhc2XAAP/wbjv+wP9aog=="
 
+type State {
+  State(config: Config, store: Store)
+}
+
 pub fn main() {
-  let state = state.init()
-  let port =
-    state.get_config(state)
-    |> config.get_port()
+  let store = store.init()
+  let config = config.init(store)
+  let port = config.port
+
+  let state = State(config, store)
 
   let assert Ok(_) =
     glisten.handler(fn(_conn) { #(state, None) }, loop)
@@ -87,10 +91,7 @@ fn handle_command(
 
     command.Set(key, value, expiry) -> {
       let response = resp.encode(resp.SimpleString("OK"))
-      let state =
-        state.get_store(state)
-        |> store.upsert(key, value, expiry)
-        |> state.update_store(state)
+      store.upsert(state.store, key, value, expiry)
 
       let assert Ok(_) =
         glisten.send(conn, bytes_builder.from_bit_array(response))
@@ -102,7 +103,7 @@ fn handle_command(
     }
 
     command.Get(key) -> {
-      let response = case store.get(state.get_store(state), key) {
+      let response = case store.get(state.store, key) {
         Ok(value) -> resp.encode(value)
         Error(_) -> resp.encode(resp.Null)
       }
@@ -115,8 +116,7 @@ fn handle_command(
 
     command.Info(command.Replication) -> {
       let response =
-        state.get_config(state)
-        |> config.get_info()
+        config.get_info(state.config)
         |> string.join("\r\n")
         |> resp.BulkString()
         |> resp.encode()
@@ -137,7 +137,7 @@ fn handle_command(
     }
 
     command.Psync(_, _) -> {
-      case state.get_config(state) {
+      case state.config {
         config.Master(_port, master) -> {
           let master.ReplicationData(replid, repl_offset, _) =
             master.get_replication_data(master)
@@ -173,11 +173,11 @@ fn handle_command(
   }
 }
 
-pub fn propagate_if_master(
+fn propagate_if_master(
   command: Command,
   state: State,
 ) -> Result(Nil, SocketReason) {
-  case state.get_config(state) {
+  case state.config {
     config.Replica(_port, _replica) -> Ok(Nil)
 
     config.Master(_port, master) -> master.propagate(master, command)

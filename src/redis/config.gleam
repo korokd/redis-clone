@@ -9,18 +9,19 @@ import argv.{Argv}
 
 import redis/master.{type Master}
 import redis/replica.{type Replica}
+import redis/store.{type Store}
 
 pub type Config {
   Master(port: Int, master: Master)
   Replica(port: Int, replica: Replica)
 }
 
-pub fn init() -> Config {
+pub fn init(store: Store) -> Config {
   let #(own_port, replicaof) = parse_arguments()
 
   case replicaof {
     Ok(#(master_host, master_port)) -> {
-      init_replica(own_port, master_host, master_port)
+      init_replica(store, own_port, master_host, master_port)
     }
 
     Error(_) -> {
@@ -69,10 +70,10 @@ fn init_master(port: Int) -> Config {
   Master(port: port, master: master.init())
 }
 
-fn init_replica(own_port: Int, master_host: String, master_port: Int) -> Config {
+fn init_replica(store: Store, own_port: Int, master_host: String, master_port: Int) -> Config {
   Replica(
     port: own_port,
-    replica: replica.init(own_port, master_host, master_port),
+    replica: replica.init(store, own_port, master_host, master_port),
   )
 }
 

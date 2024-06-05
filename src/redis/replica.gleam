@@ -2,25 +2,37 @@ import gleam/io
 
 import gleam/erlang/process.{type Selector, type Subject}
 import gleam/function
-import gleam/otp/actor.{type Next, type StartError}
+import gleam/otp/actor.{type InitResult, type Next, type StartError}
 import gleam/regex
 import gleam/result
 
 import mug.{type Socket, type TcpMessage}
 
-import redis/command
+import redis/command.{type Command}
 import redis/resp
+import redis/store.{type Store}
+
+type State {
+  State(store: Store)
+}
 
 pub type Replica =
   Subject(TcpMessage)
 
-pub fn init(own_port: Int, master_host: String, master_port: Int) -> Replica {
-  let assert Ok(replica) = init_actor(own_port, master_host, master_port)
+pub fn init(
+  store: Store,
+  own_port: Int,
+  master_host: String,
+  master_port: Int,
+) -> Replica {
+  let state = State(store: store)
+  let assert Ok(replica) = init_actor(state, own_port, master_host, master_port)
 
   replica
 }
 
 fn init_actor(
+  state: State,
   own_port: Int,
   master_host: String,
   master_port: Int,
@@ -32,7 +44,7 @@ fn init_actor(
   actor.start_spec(
     actor.Spec(
       init: fn() {
-        actor_init(own_port, master_host, master_port, msg_selector)
+        actor_init(state, own_port, master_host, master_port, msg_selector)
       },
       init_timeout: 5000,
       loop: fn(msg, state) { actor_loop(msg, state) },
@@ -41,24 +53,27 @@ fn init_actor(
 }
 
 fn actor_init(
+  state: State,
   own_port: Int,
   master_host: String,
   master_port: Int,
-  msg_selector: Selector(a),
-) {
+  msg_selector: Selector(TcpMessage),
+) -> InitResult(State, TcpMessage) {
   let assert Ok(socket) = handshake(own_port, master_host, master_port)
 
   mug.receive_next_packet_as_message(socket)
 
-  actor.Ready(state: Nil, selector: msg_selector)
+  actor.Ready(state: state, selector: msg_selector)
 }
 
-fn actor_loop(msg, _state) -> Next(TcpMessage, Nil) {
+fn actor_loop(msg, state) -> Next(TcpMessage, State) {
   case msg {
-    mug.Packet(socket, _msg) -> {
+    mug.Packet(socket, msg) -> {
+      handle_message(msg, state)
+
       mug.receive_next_packet_as_message(socket)
 
-      actor.continue(Nil)
+      actor.continue(state)
     }
 
     mug.SocketClosed(_socket) -> actor.Stop(process.Normal)
@@ -66,8 +81,29 @@ fn actor_loop(msg, _state) -> Next(TcpMessage, Nil) {
     mug.TcpError(socket, _error) -> {
       mug.receive_next_packet_as_message(socket)
 
-      actor.continue(Nil)
+      actor.continue(state)
     }
+  }
+}
+
+fn handle_message(msg: BitArray, state: State) -> Nil {
+  let assert Ok(data) = resp.parse(msg)
+  let assert Ok(command) = command.from_resp_data(data)
+
+  handle_command(command, state)
+
+  case data.remaining_input {
+    <<>> -> Nil
+    remaining_input -> handle_message(remaining_input, state)
+  }
+}
+
+fn handle_command(command: Command, state: State) -> Nil {
+  case command {
+    command.Set(key, value, expiry) ->
+      store.upsert(state.store, key, value, expiry)
+
+    _ -> Nil
   }
 }
 
