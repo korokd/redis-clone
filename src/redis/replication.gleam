@@ -12,7 +12,7 @@ import glisten.{type Connection, type SocketReason}
 import redis/command.{type Command}
 import redis/resp
 
-pub type Master =
+pub type Replication =
   Subject(ReplicationMessage)
 
 pub type ReplicationData {
@@ -28,7 +28,7 @@ pub opaque type ReplicationMessage {
   GetReplicationData(Subject(ReplicationData))
 }
 
-pub fn init() -> Master {
+pub fn init() -> Replication {
   let replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
   let repl_offset = 0
 
@@ -58,27 +58,31 @@ fn handle_replication(
   }
 }
 
-pub fn add_replica(master: Master, conn: Connection(BitArray)) -> Nil {
-  process.send(master, AddReplica(conn))
+pub fn add_replica(replication: Replication, conn: Connection(BitArray)) -> Nil {
+  process.send(replication, AddReplica(conn))
 }
 
-pub fn get_replication_data(master: Master) -> ReplicationData {
-  process.call(master, GetReplicationData, 10)
+pub fn get_replication_data(replication: Replication) -> ReplicationData {
+  process.call(replication, GetReplicationData, 10)
 }
 
-pub fn propagate(master: Master, command: Command) -> Result(Nil, SocketReason) {
+pub fn propagate(
+  replication: Replication,
+  command: Command,
+) -> Result(Nil, SocketReason) {
   let msg =
     command.to_resp_data(command)
     |> resp.encode()
 
-  get_replication_data(master).replicas_conns
+  get_replication_data(replication).replicas_conns
   |> list.map(fn(conn) { glisten.send(conn, bytes_builder.from_bit_array(msg)) })
   |> result.all()
   |> result.map(fn(_) { Nil })
 }
 
-pub fn get_info(master: Master) -> List(String) {
-  let ReplicationData(replid, repl_offset, _) = get_replication_data(master)
+pub fn get_info(replication: Replication) -> List(String) {
+  let ReplicationData(replid, repl_offset, _) =
+    get_replication_data(replication)
 
   [
     "role:master",

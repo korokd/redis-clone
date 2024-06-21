@@ -113,7 +113,8 @@ pub fn from_resp_data(data: Parsed) -> Result(Command, CommandError) {
             value,
             resp.BulkString(px),
             resp.BulkString(expiry),
-          ] ->
+          ]
+        ->
           case string.lowercase(px) {
             "px" -> {
               let assert Ok(expiry) = int.parse(expiry)

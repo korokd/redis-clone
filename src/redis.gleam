@@ -11,7 +11,7 @@ import glisten.{type Connection, type Message, type SocketReason}
 
 import redis/command.{type Command, type CommandError}
 import redis/config.{type Config}
-import redis/master
+import redis/replication
 import redis/resp
 import redis/store.{type Store}
 
@@ -139,8 +139,8 @@ fn handle_command(
     command.Psync(_, _) -> {
       case state.config {
         config.Master(_port, master) -> {
-          let master.ReplicationData(replid, repl_offset, _) =
-            master.get_replication_data(master)
+          let replication.ReplicationData(replid, repl_offset, _) =
+            replication.get_replication_data(master)
 
           let response =
             resp.encode(resp.SimpleString(
@@ -155,7 +155,7 @@ fn handle_command(
           let assert Ok(_) =
             glisten.send(conn, bytes_builder.from_bit_array(file))
 
-          master.add_replica(master, conn)
+          replication.add_replica(master, conn)
 
           actor.continue(state)
         }
@@ -180,7 +180,7 @@ fn propagate_if_master(
   case state.config {
     config.Replica(_port, _replica) -> Ok(Nil)
 
-    config.Master(_port, master) -> master.propagate(master, command)
+    config.Master(_port, master) -> replication.propagate(master, command)
   }
 }
 

@@ -7,12 +7,12 @@ import gleam/string
 
 import argv.{Argv}
 
-import redis/master.{type Master}
 import redis/replica.{type Replica}
+import redis/replication.{type Replication}
 import redis/store.{type Store}
 
 pub type Config {
-  Master(port: Int, master: Master)
+  Master(port: Int, master: Replication)
   Replica(port: Int, replica: Replica)
 }
 
@@ -67,10 +67,15 @@ fn parse_arguments() -> #(Int, Result(#(String, Int), Nil)) {
 }
 
 fn init_master(port: Int) -> Config {
-  Master(port: port, master: master.init())
+  Master(port: port, master: replication.init())
 }
 
-fn init_replica(store: Store, own_port: Int, master_host: String, master_port: Int) -> Config {
+fn init_replica(
+  store: Store,
+  own_port: Int,
+  master_host: String,
+  master_port: Int,
+) -> Config {
   Replica(
     port: own_port,
     replica: replica.init(store, own_port, master_host, master_port),
@@ -79,7 +84,7 @@ fn init_replica(store: Store, own_port: Int, master_host: String, master_port: I
 
 pub fn get_info(config: Config) -> List(String) {
   case config {
-    Master(_port, master) -> master.get_info(master)
+    Master(_port, master) -> replication.get_info(master)
 
     Replica(_port, _replica) -> replica.get_info()
   }
